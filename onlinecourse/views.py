@@ -111,6 +111,9 @@ def enroll(request, course_id):
          # Add each selected choice object to the submission object
          # Redirect to show_exam_result with the submission id
 def submit(request, course_id):
+    if request.method != 'POST':
+        return HttpResponseRedirect(reverse(viewname='onlinecourse:course_details', args=(course_id,)))
+
     course = get_object_or_404(Course, pk=course_id)
     user = request.user
     enrollment = Enrollment.objects.get(user=user, course=course)
@@ -147,6 +150,11 @@ def show_exam_result(request, course_id, submission_id):
     total_score = 0
     questions = course.question_set.all()
 
+    # Fallback to submitted question ids if course question relation has no rows.
+    if not questions.exists() and choices.exists():
+        question_ids = choices.values_list('question_id', flat=True).distinct()
+        questions = Question.objects.filter(id__in=question_ids)
+
     for question in questions:
         correct_choices = question.choice_set.filter(is_correct=True)
         selected_choices = choices.filter(question=question)
@@ -154,9 +162,17 @@ def show_exam_result(request, course_id, submission_id):
         if set(correct_choices) == set(selected_choices):
             total_score += question.grade
 
+    max_score = sum(question.grade for question in questions)
+    score_percent = (total_score / max_score * 100) if max_score > 0 else 0
+    is_passed = score_percent >= 80
+
     context['course'] = course
     context['grade'] = total_score
+    context['max_score'] = max_score
+    context['score_percent'] = round(score_percent, 2)
+    context['is_passed'] = is_passed
     context['choices'] = choices
+    context['questions'] = questions
 
     return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
 
